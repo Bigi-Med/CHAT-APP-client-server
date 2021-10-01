@@ -1,3 +1,4 @@
-Nom : 
-Prénom : 
-github_login : 
+Nom : Bigi
+Prénom : Mohamed
+github_login : Bigi-Med
+email : mohamed.bigi@bordeaux-inp.fr
