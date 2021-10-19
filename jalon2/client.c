@@ -7,170 +7,443 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <poll.h>
 
 #include "common.h"
 #include "msg_struct.h"
 
 #define STR_MAX 128
+#define FDS 2
 
-void echo_client(int sockfd) {
-	struct message msgstruct;
-	char buff[MSG_LEN];
-	char user[MSG_LEN];
-	int n;
-	memset(buff, 0, INFOS_LEN);
-	memset(&msgstruct,0,sizeof(struct message));
-	
-	//receiving first struct
+char nick[NICK_LEN];
 
-	if(recv(sockfd,&msgstruct,sizeof(msgstruct),0)<=0)
+struct message nick_new(int sockfd,struct message msg,char *buff)
+{
+	char new_nick[NICK_LEN];
+	memset(new_nick,0,NICK_LEN);
+	memcpy(new_nick,buff+6,strlen(buff)-7);
+	//filling struct
+	strncpy(msg.nick_sender,new_nick,strlen(new_nick));
+	memset(nick,0,NICK_LEN);
+	strncpy(nick,new_nick,strlen(new_nick));
+	printf("You'r new nickname is %s \n",new_nick);
+	strncpy(msg.infos,"\0",1);
+	msg.type = NICKNAME_NEW;
+	msg.pld_len = strlen(new_nick);
+	if(send(sockfd,&msg,sizeof(msg),0)<0)
 	{
-		perror("Receiving ");
-		exit(EXIT_FAILURE);
+		perror("Error while sending strucure");
+		//break;
 	}
+	
+	return msg;
 
-	char msg[msgstruct.pld_len];
-	memset(msg,0,msgstruct.pld_len);
+}
 
-	//receiving first message
-
-	if(recv(sockfd,msg,msgstruct.pld_len,0)<=0)
+struct message who_func(int sockfd,struct message msg,char *buff)
+{
+	memset(&msg,0,sizeof(msg));
+	//setting up structure
+	msg.type = NICKNAME_LIST;
+	strncpy(msg.infos,"\0",1);
+	strncpy(msg.nick_sender,nick,strlen(nick));
+	msg.pld_len = 0;
+//sending the structure
+	if(send(sockfd,&msg,sizeof(msg),0)<0)
 	{
-		perror("Receiving ");
-		exit(EXIT_FAILURE);
+		perror("Error while sending who sruct");
+		//return;
 	}
-	printf("%s \n",msg);
+	printf("Message sent \n");
+	return msg;
+}
 
-	
-	int k;
-	k = 0;
-	memset(user, 0, MSG_LEN);
-
-	while ((user[k++] = getchar()) != '\n') {} // trailing '\n' will be sent
-	//k = 0;
-	printf("buff is %s \n", user);
-	//char test[6];
-	
-	//memset(test,0,6);
-	//memcpy(test,user,6);
-	fflush(stdout);
-	//printf("test is %s \n",test);
-	//printf("test lenght %ld \n",strlen(test));
-	
-	if(strncmp(user,"/nick ",6)==0)
-	{
-		char name[NICK_LEN];
-		memcpy(name,user + 6,sizeof(user)-6);
-		printf("name is %s \n",name);
-		//setting up the struct
-		msgstruct.pld_len = strlen(name)+1;
-		strncpy(msgstruct.nick_sender, "\0", 1);
-		msgstruct.type = NICKNAME_NEW;
-		strncpy(msgstruct.infos, name, strlen(name));
-		
-		//sending the struct
-		if (send(sockfd, &msgstruct, sizeof(msgstruct), 0) < 0) {
-			exit(EXIT_FAILURE);
-		}
-		//sending nick name
-		if (send(sockfd, name, msgstruct.pld_len, 0) < 0) {
-			exit(EXIT_FAILURE);
-		}
-
-		//receiving the welcome message
-		
-
-		if(recv(sockfd,&msgstruct,sizeof(msgstruct),0)<0)
+struct message whois_func(int sockfd,struct message msg,char *buff)
+{
+	memset(&msg,0,sizeof(msg));
+	//retreiving target
+	char target[NICK_LEN];
+	memset(target,0,NICK_LEN);
+	strncpy(target,buff+7,strlen(buff)-8);
+	msg.type = NICKNAME_INFOS;
+	strncpy(msg.infos,target,strlen(target));
+	msg.pld_len = 0;
+	strncpy(msg.nick_sender,nick,strlen(nick));
+	//sendig whois structure
+	if(send(sockfd,&msg,sizeof(msg),0)<0)
 		{
-			perror("Receiving ");
-			exit(EXIT_FAILURE);
-		}
-		char welcome[msgstruct.pld_len];
-		memset(welcome,0,msgstruct.pld_len);
+			perror("Error while sending whois struct");
+			//break;
+		} 
+		return msg;
+}
 
-		if(recv(sockfd,welcome,msgstruct.pld_len,0)<0)
+struct message msgall_func(int sockfd,struct message msg, char *buff)
+{
+	char my_msg[MSG_LEN];
+	memset(my_msg,0,MSG_LEN);
+	memset(&msg,0,sizeof(msg));
+	//retreiving the message
+	strncpy(my_msg,buff+8,strlen(buff)-9);
+	//setting up the struct
+	msg.type = BROADCAST_SEND;
+	strncpy(msg.nick_sender,nick,sizeof(nick));
+	strncpy(msg.infos,"\0",1);
+	msg.pld_len = strlen(my_msg);
+	//sending the struct
+	if(send(sockfd,&msg,sizeof(msg),0)<0)
 		{
-			perror("Receiving ");
-			exit(EXIT_FAILURE);
+			perror("Error while sending broadcast struct");
+			//break;
 		}
-		printf("%s \n",welcome);
-
-
-
-
-
-
-
-
-		
-	}
+		//sending message
+	if(send(sockfd,my_msg,strlen(my_msg),0)<0)
+		{
+			perror("Error while sending broadcast message");
+			//break;
+		}
 	
-
+	return msg;
 	
-	/*memset(user, 0, 100);
-	printf("pseudo is  : ");*/
+}
 
-	//while ((user[k++] = getchar()) != '\n') {} // trailing '\n' will be sent
-	//printf("buff is %s \n", user);
-	//char test[6];
-	//memset(test,0,6);
-	//memcpy(test,user,6);
-	//fflush(stdout);
-	//printf("test is %s \n",test);
-	//printf("frst %c \n",user[0]);
-	//printf("scnd %c \n",user[1]);
-	/*if(user[0] == '/' && user[1] == 'n' && user[2] == 'i' && user[3] == 'c' && user[4] == 'k' && user[5] == ' ')
+void msg_unicast(int sockfd,struct message msg,char buff[])
+{
+	char target[NICK_LEN];
+	char msg_to_send[MSG_LEN];
+	memset(msg_to_send,0,MSG_LEN);
+	memset(target,0,NICK_LEN);
+	int nick_length = 0;
+	int msg_length = 0;
+	int length = (int)strlen(buff);
+	int i =5;
+	while(i < length)
+	{
+		if(buff[i] == ' ')
 		{	
-			
-			
-			
-		}*/
+			break;
+		}
+		nick_length++;
+		i++;
+	}
+	int j = nick_length+6;
+	while(j<length)
+	{
+		if(buff[j] == '\n')
+			break;
+		msg_length++;
+		j++;
+	}
+	strncpy(target,buff+5,strlen(buff)-6-msg_length);
+	strncpy(msg_to_send,buff+6+nick_length,strlen(buff)-6-nick_length-1);
+	//setting up the struct to send
+	memset(&msg,0,sizeof(msg));
+	msg.type = UNICAST_SEND;
+	strncpy(msg.infos,target,strlen(target));
+	strncpy(msg.nick_sender,nick,strlen(nick));
+	msg.pld_len = strlen(msg_to_send);
+	//sending the struct
+	if(send(sockfd,&msg,sizeof(msg),0)<0)
+	{
+		perror("Error while sending unicast struct");
+		return;
+	}
+	//sending the message
+	if(send(sockfd,msg_to_send,msg.pld_len,0)<0)
+	{
+		perror("Error while sending unicast message");
+		return;
+	}
+	memset(buff,0,MSG_LEN);
+	memset(&msg,0,sizeof(msg));
+
+	return;
+}
+void ask_for_nick(int sockfd, struct message msg)
+{
+	char buff[MSG_LEN];
+	memset(buff,0,MSG_LEN);
+	int k;
+	k=0;
+	fflush(stdout);
+	printf("in fucnt \n");
+	printf("buff %s \n",buff);
+	while ((buff[k++] = getchar()) != '\n') {}
+	int check_nick =0;
+	
+	while(strncmp(buff,"/nick ",6)!=0)
+	{
+		printf("Please enter a pseudo \n");
+		memset(buff,0,MSG_LEN);
+		k = 0;
+		while ((buff[k++] = getchar()) != '\n') {}
 		
-	//else{
+	
+	}
+	printf("buff is %s \n",buff);
+	//retreiving the nick name
+
+	//char nick[NICK_LEN];
+	memset(nick,0,NICK_LEN);
+	memcpy(nick,buff +6,strlen(buff)-7);
+	memset(buff,0,MSG_LEN);
+	printf("nick is %s \n",nick);
+	memset(&msg,0,sizeof(msg));
+	strncpy(msg.nick_sender,"\0",1);
+	msg.type = NICKNAME_NEW;
+	strncpy(msg.infos,nick,strlen(nick));
+	msg.pld_len = strlen(msg.infos);
+
+	//sending the struct containing the nick name
+	printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msg.pld_len, msg.nick_sender, msg_type_str[msg.type], msg.infos);
+	if(send(sockfd,&msg,sizeof(msg),0)<0)
+	{
+		printf("Error while sending nick new struct");
+		return;
+	}
+	return;
+}
+
+struct message send_echo(int sockfd,struct message msg,char *buff)
+{
+	msg.type = ECHO_SEND;
+	strncpy(msg.nick_sender,nick,strlen(nick));
+	strncpy(msg.infos,"\0",1);
+		//sending struct
+	if(send(sockfd,&msg,sizeof(msg),0)<0)
+	{
+		perror("Error while sending strucure");
+		//break;
+	}
+			
+	// Sending message (ECHO)
+	if (send(sockfd, buff, strlen(buff), 0) < 0) {
+		perror("Error while sending message");
+		//break;
+	}
+	printf("Message sent!\n");
+	// Cleaning memory
+	
+		return msg;
+}
+void echo_client(int sockfd) {
+	char buff[MSG_LEN];
+	int is_nick = 0;
+	struct pollfd pollfds[FDS];
+	/*******/
+	pollfds[0].fd = STDIN_FILENO;
+	pollfds[0].events = POLLIN;
+	pollfds[0].revents = 0;
+	/********/
+	pollfds[1].fd = sockfd;
+	pollfds[1].events = POLLIN;
+	pollfds[1].revents = 0;
+	/*********/
+	struct message msgstruct;
+	static int check = 0;
+	int n;
+	memset(buff,0,MSG_LEN);
+	memset(&msgstruct,0,sizeof(msgstruct));
+	//receiving nick struct
+	if (recv(sockfd,&msgstruct,sizeof(msgstruct),0)<0)
+	{
+		perror("Error while receiving nick struct");
+		return;
+	}
+	//receiving nick msg
+	if(recv(sockfd,buff,msgstruct.pld_len,0)<0)
+	{
+		perror("Error while receving nick msg");
+		return;
+	}
+	printf("%s \n",buff);
+
+	//treating the nickname
+	while(1)
+	{
+		printf("in nick loop \n");
+		ask_for_nick(pollfds[1].fd,msgstruct);
+		memset(&msgstruct,0,sizeof(msgstruct));
+		memset(buff,0,MSG_LEN);
+		//receiving nick response struct
+
+		if(recv(pollfds[1].fd,&msgstruct,sizeof(msgstruct),0)<0)
+		{
+			perror("Error while receiving nick response struct");
+		}
+		printf("received nick struct \n");
+		if(!strncmp(msgstruct.nick_sender,"\0",1))
+		{
+			printf("in wrond cod\n");
+			printf("Pseudo already taken, enter a new one \n");
+			continue;
+		}
+		else{
+			//receive welcome message and leave loop
+			printf("in correct cond \n");
+			if(recv(pollfds[1].fd,buff,msgstruct.pld_len,0)<0)
+			{
+				perror("Error while receiving welcome struct");
+			}
+			printf("%s \n",buff);
+			break;
+		}
+	}
+
+	
 	while (1) {
-		// Cleaning memory
-		memset(buff, 0, INFOS_LEN);
-		memset(&msgstruct,0,sizeof(struct message));
+		
+		memset(buff, 0, MSG_LEN);
+		memset(&msgstruct,0,sizeof(msgstruct));
+		//receiving weclome struct and message
+
+		/*if(!check)
+		{
+			if(recv(sockfd,&msgstruct,sizeof(msgstruct),0)<0)
+			{
+				perror("Error while receiving welcome structure");
+				break;
+			}
+			if(recv(sockfd,buff,msgstruct.pld_len,0)<0)
+			{
+				perror("Error while receiving welcome message");
+				break;
+			}
+			//printf("welcome \n");
+			printf("%s \n",buff);
+			check++;
+			// Cleaning memory
+			memset(buff, 0, MSG_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
+		}*/
+
+		if (poll(pollfds, FDS, -1) <= 0){
+			perror("Poll");
+			break;
+		}
+		
 		// Getting message from client
-		printf("Message: ");
+		if(pollfds[0].revents & POLLIN)
+		{
+		//printf("Message: ");
+		memset(buff, 0, MSG_LEN);
+		memset(&msgstruct,0,sizeof(msgstruct));
 		n = 0;
 		while ((buff[n++] = getchar()) != '\n') {} // trailing '\n' will be sent
-		/*if(strcmp(buff,"/nick\n") == 0)
-		{	
+		
+		//settign up  struct
+		if(!(strncmp(buff,"/nick ",6)))
+		{
 			
-			echo_nick(sockfd);
-			
-		}*/
+			msgstruct = nick_new(pollfds[1].fd,msgstruct,buff);
+			printf("Message sent!\n");
+			 //cleaning memory
+			memset(buff,0,NICK_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
+		}
 
-		//else{
-		//filling structur
-		msgstruct.pld_len = strlen(buff);
-		strncpy(msgstruct.nick_sender, "simo", 4);
-		msgstruct.type = ECHO_SEND;	
-		strncpy(msgstruct.infos, "\0", 1);
-		// Sending structure
-		if (send(sockfd, &msgstruct, sizeof(msgstruct), 0) <= 0) {
+		else if(!(strncmp(buff,"/who",4))&& (strlen(buff) == 5))
+		{
+			msgstruct = who_func(pollfds[1].fd,msgstruct,buff);
+			
+			memset(&msgstruct,0,sizeof(msgstruct));
+			memset(buff,0,MSG_LEN);
+			
+		}
+
+		else if(!(strncmp(buff,"/whois ",7 )))
+		{
+			msgstruct = whois_func(pollfds[1].fd,msgstruct,buff);
+			memset(buff,0,MSG_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
+			
+		}
+		else if(!strncmp(buff,"/msgall ",8))
+		{
+			msgstruct = msgall_func(pollfds[1].fd,msgstruct,buff);
+		}
+		else if(!(strncmp(buff,"/msg ",5)))
+		{
+			memset(&msgstruct,0,sizeof(msgstruct));
+			msg_unicast(pollfds[1].fd,msgstruct,buff);
+		}
+		else{
+			msgstruct = send_echo(pollfds[1].fd,msgstruct,buff);
+			if(strcmp(buff,"/quit\n") == 0)
+			{
+				close(pollfds[1].fd);
+				return ;
+			}
+			memset(buff, 0, MSG_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
+			continue;
+			
+		}
+		//cleaning mem
+		memset(&msgstruct,0,sizeof(msgstruct));
+		memset(buff,0,MSG_LEN);
+		}
+		else if(pollfds[1].fd & pollfds[1].revents & POLLIN)
+		{
+
+		if(recv(pollfds[1].fd,&msgstruct,sizeof(msgstruct),0)<0)
+		{
+			
+			perror("ERROR while recv a strt ");
 			break;
 		}
-		// Sending message (ECHO)
-		if (send(sockfd, buff, msgstruct.pld_len, 0) <= 0) {
-			break;
+		
+		if(msgstruct.type == NICKNAME_LIST)
+		{
+			if (recv(pollfds[1].fd, buff, msgstruct.pld_len, 0) < 0) {
+				break;
+			}
+			printf("%s", buff);
+			memset(buff,0,NICK_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
 		}
-		printf("Message sent!\n");
-		// Cleaning memory
-		memset(buff, 0, INFOS_LEN);
-		// reveiving struct
-		printf("before rec \n");
-		if(recv(sockfd,&msgstruct,sizeof(msgstruct),0)<=0)
-			break;
-		// Receiving message
-		printf("before rec 2\n");
-		/*if (recv(sockfd, buff, MSG_LEN, 0) <= 0) {
-			break;
+		if(msgstruct.type == NICKNAME_INFOS)
+		{
+			//Receiving message
+			if (recv(pollfds[1].fd, buff, msgstruct.pld_len, 0) < 0) {
+				break;
+			}
+			printf("%s ", buff);
+			memset(buff,0,NICK_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
 		}
-		printf("Received: %s", buff);*/
+		if(msgstruct.type == BROADCAST_SEND)
+		{
+			
+			memset(buff,0,MSG_LEN);
+			char sender[NICK_LEN];
+			memset(sender,0,NICK_LEN);
+			strncpy(sender,msgstruct.nick_sender,strlen(msgstruct.nick_sender));
+			if(recv(pollfds[1].fd,buff,msgstruct.pld_len,0)<0)
+			{
+				perror("Error while receiving br struct");
+				break;
+			}
+			printf("PUBLIC conv :[%s] sent : %s \n",sender,buff);
 		}
-	//}
+		if(msgstruct.type == UNICAST_SEND)
+		{
+			char sender[NICK_LEN];
+			memset(sender,0,NICK_LEN);
+			strncpy(sender,msgstruct.nick_sender,strlen(msgstruct.nick_sender));
+			//receiving message
+			if (recv(pollfds[1].fd, buff, msgstruct.pld_len, 0) < 0) {
+				break;
+			}
+			printf(" PRIVATE conv : [%s] sent %s \n", sender,buff);
+			memset(buff,0,NICK_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
+		}
+		}
+
+		
+		
+	}
 }
 
 int socket_and_connect(char *hostname, char *port) {
@@ -213,12 +486,8 @@ int socket_and_connect(char *hostname, char *port) {
 	return -1;
 }
 
-int main(int argc, char  *argv[]) {
-	
-	 int track = 0;
 
-	printf("track before : %d",track);
-	
+int main(int argc, char  *argv[]) {
 	if (argc != 3) {
 		printf("Usage: ./client hostname port_number\n");
 		exit(EXIT_FAILURE);
@@ -232,14 +501,7 @@ int main(int argc, char  *argv[]) {
 		return 1;
 	}
 
-    
-	//echo_nick(sock_fd);
-		
-
-	
-
-
-	echo_client(sock_fd);
+    echo_client(sock_fd);
 	close(sock_fd);
 	return EXIT_SUCCESS;
 
