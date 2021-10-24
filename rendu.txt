@@ -1,0 +1,5 @@
+jalon4
+
+Remarques:
+	Pour jalon4, l'envoi des fichiers P2P s'effectue correctement, mais qu'une seule fois uniquement, on doit relancer le processus pour envoyer un nouvel fichier. 
+	Quand le dernier utilisateur d'un salon quitte,le salon se détruit, mais parfois la chaîne indiquant sa destruction n'est pas reçu correctement 

@@ -16,6 +16,7 @@
 #define FDS 2
 
 char nick[NICK_LEN];
+char salon[NICK_LEN];
 
 struct message nick_new(int sockfd,struct message msg,char *buff)
 {
@@ -210,6 +211,8 @@ void create_salon(int sockfd,struct message msg,char *buff)
 	//char salon_name[NICK_LEN];
 	//memset(salon_name,0,NICK_LEN);
 	strncpy(msg.infos,buff+8,strlen(buff)-9);
+	memset(salon,0,NICK_LEN);
+	strncpy(salon,msg.infos,strlen(msg.infos));
 	//setting up struct
 	msg.pld_len = 0;
 	strncpy(msg.nick_sender,nick,strlen(nick));
@@ -246,6 +249,8 @@ void join_sallon(int sockfd,struct message msg, char *buff)
 	//char salon_name[NICK_LEN];
 	//memset(salon_name,0,NICK_LEN);
 	strncpy(msg.infos,buff+6,strlen(buff)-7);
+	memset(salon,0,NICK_LEN);
+	strncpy(salon,msg.infos,strlen(msg.infos));
 	//setting up struct
 	msg.pld_len = 0;
 	strncpy(msg.nick_sender,nick,strlen(nick));
@@ -266,6 +271,7 @@ void quit_sallon(int sockfd,struct message msg,char *buff)
 	msg.pld_len = 0;
 	strncpy(msg.nick_sender,nick,strlen(nick));
 	msg.type = MULTICAST_QUIT;
+	memset(salon,0,NICK_LEN);
 
 	//sending struct
 	if(send(sockfd,&msg,sizeof(msg),0)<0)
@@ -277,9 +283,11 @@ void quit_sallon(int sockfd,struct message msg,char *buff)
 }
 struct message send_echo(int sockfd,struct message msg,char *buff)
 {
+	memset(&msg,0,sizeof(msg));
 	msg.type = ECHO_SEND;
 	strncpy(msg.nick_sender,nick,strlen(nick));
 	strncpy(msg.infos,"\0",1);
+	msg.pld_len = strlen(buff);
 		//sending struct
 	if(send(sockfd,&msg,sizeof(msg),0)<0)
 	{
@@ -297,7 +305,38 @@ struct message send_echo(int sockfd,struct message msg,char *buff)
 	
 		return msg;
 }
+
+struct message send_multicast(int sockfd,char *buff)
+{
+	struct message msg;
+	memset(&msg,0,sizeof(msg));
+	msg.type = MULTICAST_SEND;
+	strncpy(msg.nick_sender,nick,strlen(nick));
+	strncpy(msg.infos,salon,strlen(salon));
+	msg.pld_len = strlen(buff);
+		//sending struct
+	if(send(sockfd,&msg,sizeof(msg),0)<0)
+	{
+		perror("Error while sending strucure");
+		//break;
+	}
+	printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msg.pld_len, msg.nick_sender, msg_type_str[msg.type], msg.infos);	
+	// Sending message (ECHO)
+	if (send(sockfd, buff, msg.pld_len, 0) < 0) {
+		perror("Error while sending message");
+		//break;
+	}
+
+	printf("Message sent!\n");
+	// Cleaning memory
+	
+		return msg;
+}
+
+
 void echo_client(int sockfd) {
+	static int in_sallon = 0;
+	//int checkk = 0;
 	char buff[MSG_LEN];
 	int is_nick = 0;
 	struct pollfd pollfds[FDS];
@@ -423,6 +462,8 @@ void echo_client(int sockfd) {
 		else if(!(strncmp(buff,"/create ",8)))
 		{
 			//printf("in create\n");
+
+			in_sallon = 1;
 			memset(&msgstruct,0,sizeof(msgstruct));
 			create_salon(pollfds[1].fd,msgstruct,buff);
 		}
@@ -434,12 +475,14 @@ void echo_client(int sockfd) {
 		}
 		else if((!strncmp(buff,"/join ",6)))
 		{
+			in_sallon = 1;
 			printf("in join sallone \n");
 			memset(&msgstruct,0,sizeof(msgstruct));
 			join_sallon(pollfds[1].fd,msgstruct,buff);
 		}
 		else if((!strncmp(buff,"/quit ",6)))
 		{
+			in_sallon = 0;
 			printf("in quit sallon condition \n");
 			memset(&msgstruct,0,sizeof(msgstruct));
 			quit_sallon(pollfds[1].fd,msgstruct,buff);
@@ -447,7 +490,12 @@ void echo_client(int sockfd) {
 		else{
 			//printf("in echo\n");
 			//printf("value is  ");
-			msgstruct = send_echo(pollfds[1].fd,msgstruct,buff);
+			printf("in sallon is %i \n",in_sallon);
+			if(in_sallon == 0)
+				msgstruct = send_echo(pollfds[1].fd,msgstruct,buff);
+			else{
+				msgstruct = send_multicast(pollfds[1].fd,buff);
+			}
 			if(strcmp(buff,"/quit\n") == 0)
 			{
 				close(pollfds[1].fd);
@@ -519,6 +567,15 @@ void echo_client(int sockfd) {
 			}
 			printf("PUBLIC conv :[%s] sent : %s \n",sender,buff);
 		}
+		if(msgstruct.type == MULTICAST_QUIT)
+		{
+			if (recv(pollfds[1].fd, buff, msgstruct.pld_len, 0) < 0) {
+				break;
+			}
+			printf("%s ", buff);
+			memset(buff,0,NICK_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
+		}
 		if(msgstruct.type == UNICAST_SEND)
 		{
 			char sender[NICK_LEN];
@@ -529,6 +586,28 @@ void echo_client(int sockfd) {
 				break;
 			}
 			printf(" PRIVATE conv : [%s] sent %s \n", sender,buff);
+			memset(buff,0,NICK_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
+		}
+		if(msgstruct.type == MULTICAST_SEND)
+		{
+			char sender[NICK_LEN];
+			memset(sender,0,NICK_LEN);
+			strncpy(sender,msgstruct.nick_sender,strlen(msgstruct.nick_sender));
+			//receiving message
+			if (recv(pollfds[1].fd, buff, msgstruct.pld_len, 0) < 0) {
+				break;
+			}
+			printf(" GROUPE conv : [%s] sent %s \n", sender,buff);
+			memset(buff,0,NICK_LEN);
+			memset(&msgstruct,0,sizeof(msgstruct));
+		}
+		if(msgstruct.type == ECHO_SEND)
+		{
+			if (recv(pollfds[1].fd, buff, msgstruct.pld_len, 0) < 0) {
+				break;
+			}
+			printf("%s ", buff);
 			memset(buff,0,NICK_LEN);
 			memset(&msgstruct,0,sizeof(msgstruct));
 		}
@@ -572,10 +651,12 @@ int socket_and_connect(char *hostname, char *port) {
 				exit(EXIT_FAILURE);
 			}
 			printf("OK\n");
+			freeaddrinfo(res);
 			return sock_fd;
 		}
 		tmp = tmp->ai_next;
 	}
+	freeaddrinfo(res);
 	return -1;
 }
 

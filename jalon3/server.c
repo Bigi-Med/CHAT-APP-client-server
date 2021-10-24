@@ -25,7 +25,11 @@ char user_2[] = " connected since :";
 char user_3[] = " with IP adresse : ";
 char user_4[] = " on port number :";
 char salles_list[] = "Online salons are : \n";
+char destroyed[] = "The following salon is destroyed : ";
+char joined[] = "The following user has joined the salon : ";
+char left[] = "The following user has left the sallon : ";
 struct salon *head_salon = NULL;
+struct connection_information *client_head = NULL;
 int salons_left = 0;
 
 
@@ -427,7 +431,8 @@ int multi_create(int sockfd,struct message msg,struct connection_information *cl
 	p = head_salon;
 	while(p!=NULL)
 	{
-		if(!(strncmp(p->nom_salon,name_salon,MIN(strlen(p->nom_salon),strlen(name_salon)))))
+		//if(!(strncmp(p->nom_salon,name_salon,MIN(strlen(p->nom_salon),strlen(name_salon)))))
+		if(strcmp(p->nom_salon,name_salon)==0)
 		{
 			
 			memset(&msg,0,sizeof(msg));
@@ -441,7 +446,7 @@ int multi_create(int sockfd,struct message msg,struct connection_information *cl
 			return 0;
 
 		}
-		p->next;
+		p=p->next;
 	}
 	if(first_salon == 0 || salons_left == 0)
 	{
@@ -510,6 +515,69 @@ void multi_list(int sockfd,struct message msg,struct salon *salle,char *buff)
 	strcpy(salles_list,"Online salons are : \n");
 }
 
+void notify_users(struct connection_information *client,char *joiner_leaver,int leave_join,char *salon_nam)
+{
+	//leave_join is 1 if join and 0 if leave
+	struct connection_information *p;
+	struct message msgstruct;
+	p = client;
+	
+	
+	
+	while(p!=NULL)
+	{
+	if(!(strncmp(joiner_leaver,p->pseudo,MIN(strlen(joiner_leaver),strlen(p->pseudo)))))
+	{
+		p = p->next;
+		printf("first if\n");
+		continue;
+	}
+	
+	/*else if(strcmp(p->salon_name,salon_nam))
+	{
+		p = p->next;
+		printf("second if \n");
+		continue;
+	}*/
+	else{
+		memset(&msgstruct,0,sizeof(msgstruct));
+		strcat(joined,joiner_leaver);
+		strcat(joined,"\n");
+		strcat(left,joiner_leaver);
+		strcat(left,"\n");
+		msgstruct.type = ECHO_SEND;
+		strncpy(msgstruct.infos,"\0",1);
+		strncpy(msgstruct.nick_sender,"\0",1);
+		if(leave_join == 1)
+			msgstruct.pld_len = strlen(joined);
+		else 
+			msgstruct.pld_len = strlen(left);
+		if(send(p->socket_fd,&msgstruct,sizeof(msgstruct),0)<0)
+		{
+			perror("Error while sending new joined struct ");
+		}
+		if(leave_join == 1)
+		{
+			if(send(p->socket_fd,joined,msgstruct.pld_len,0)<0)
+			{
+				perror("Error while sending new joined message");
+			}
+		}
+		else
+		{
+			if(send(p->socket_fd,left,msgstruct.pld_len,0)<0)
+			{
+				perror("Error while sending new joined message");
+			}
+		}
+
+	}
+	p = p->next;
+	strcpy(joined,"The following user has joined the salon : ");
+	strcpy(left,"The following user has left the sallon : ");
+	}
+}
+
 void multi_join(int sockfd,struct message msg,char *buff,struct connection_information *client,struct salon *salle)
 {
 	memset(buff,0,NICK_LEN);
@@ -523,7 +591,7 @@ void multi_join(int sockfd,struct message msg,char *buff,struct connection_infor
 		if(p->socket_fd == sockfd)
 		{
 			p->salon_name = msg.infos;
-			printf("joined sallon succesfully\n");
+			
 			while(q!=NULL)
 			{
 				if(!(strncmp(q->nom_salon,msg.infos,MIN(strlen(q->nom_salon),strlen(msg.infos)))))
@@ -531,6 +599,7 @@ void multi_join(int sockfd,struct message msg,char *buff,struct connection_infor
 					printf("in condition add 1 \n");
 					q->Nutilisateurs++;
 					printf("user added succ\n");
+					notify_users(client_head,p->pseudo,1,q->nom_salon);
 					break;
 				}
 				q = q->next;
@@ -550,11 +619,13 @@ void multi_quit(int sockfd,struct message msg,char *buff,struct connection_infor
 	p = client;
 	struct salon*q;
 	q = salle;
+	memset(buff,0,MSG_LEN);
 	while(p!=NULL)
 	{
 		if(p->socket_fd == sockfd)
 		{
 			//memset(p->salon_name,0,NICK_LEN);
+			notify_users(client_head,p->pseudo,0,q->nom_salon);
 			p->salon_name = NULL;
 			printf("quitted channel \n");
 			while(q!=NULL)
@@ -563,14 +634,37 @@ void multi_quit(int sockfd,struct message msg,char *buff,struct connection_infor
 				{	
 					printf("in condition add 1 \n");
 					q->Nutilisateurs--;
+					//notify_users(client_head,p->pseudo,0,q->nom_salon);
 					if(q->Nutilisateurs == 0)
 					{
 						//if there are no users
 						freeing_sallon(&head_salon,msg.infos);
 						are_there_salons(head_salon);
-						printf("salon is freed\n");
+						//sending sallon is destroyed info
+						
+						strcat(destroyed,msg.infos);
+						strcat(destroyed,"\n");
+						memset(&msg,0,sizeof(msg));
+						msg.pld_len = strlen(destroyed);
+						
+						strncpy(msg.infos,"\0",1);
+						strncpy(msg.nick_sender,"\0",1);
+						msg.type = MULTICAST_QUIT;
+						//SENDING DESTROY STRUCT
+						if(send(sockfd,&msg,sizeof(msg),0)<0)
+						{
+							perror("Error while sending destroy struct");
+						}
+						printf("struct destroy sent\n");
+						//sending destroyed message
+						if(send(sockfd,destroyed,msg.pld_len,0)<0)
+						{
+							perror("Error while sending destroy message");
+						}
+						strcpy(destroyed, "The following salon is destroyed : ");
+						
 					}
-					printf("user added succ\n");
+					
 					break;
 				}
 				q = q->next;
@@ -579,6 +673,135 @@ void multi_quit(int sockfd,struct message msg,char *buff,struct connection_infor
 		}
 	p = p->next;
 	}
+}
+
+void multi_send(int sockfd,struct message msg,struct connection_information *client)
+{
+
+	struct connection_information *p;
+	struct message msgstruct;
+	p = client;
+	msgstruct = msg;
+	char buff[MSG_LEN];
+	memset(buff,0,MSG_LEN);
+	if(recv(sockfd,buff,msg.pld_len,0)<0)
+	{
+		perror("Error while receiving multi send strcut ");
+	}
+	//we now have the message in buff;
+	//sending the message for other users;
+	char the_salon[NICK_LEN];
+	char sender[NICK_LEN];
+	memset(sender,0,NICK_LEN);
+	memset(the_salon,0,NICK_LEN);
+	strncpy(the_salon,msg.infos,strlen(msg.infos));
+	strncpy(sender,msg.nick_sender,strlen(msg.nick_sender));
+	memset(&msgstruct,0,sizeof(msgstruct));
+	msgstruct.type = MULTICAST_SEND;
+	msgstruct.pld_len = strlen(buff);
+	strncpy(msgstruct.infos,"\0",1);
+	strncpy(msgstruct.nick_sender,sender,strlen(sender));
+	printf("in while loop\n");
+	while(p!=NULL)
+	{
+		if(strcmp(p->pseudo,sender)==0)
+		{
+			printf("in sender \n");
+			p = p->next;
+			continue;
+		}
+		else{
+			if(p->salon_name == NULL)
+			{	p=p->next;
+				continue;
+			}
+			if(strcmp(p->salon_name,the_salon)==0)
+			{
+				//sending struct
+				if(send(p->socket_fd,&msgstruct,sizeof(msgstruct),0)<0)
+				{
+					perror("Error while sending multi struct ");
+				}
+				printf("struct was sent \n");
+				printf("message to send is : %s \n",buff);
+				if(send(p->socket_fd,buff,msgstruct.pld_len,0)<0)
+				{
+					perror("Error while sending multi message");
+				}
+				printf("message multi sent \n");
+				p=p->next;
+				continue;
+			}
+			
+			else{
+				printf("not anywhere \n");
+				p = p->next;
+				continue;
+			}
+		}
+	}
+
+
+
+
+	/*int pp = 0;
+	char salonn[NICK_LEN];
+	char nickname[NICK_LEN];
+	memset(nickname,0,NICK_LEN);
+	memset(salonn,0,NICK_LEN);
+	strncpy(salonn,msg.infos,strlen(msg.infos));
+	strncpy(nickname,msg.nick_sender,strlen(msg.nick_sender));
+	//memset(&msg,0,sizeof(msg ));
+	struct connection_information *p;
+	p = client;
+	char buff[MSG_LEN];
+	memset(buff,0,MSG_LEN);
+	if(recv(sockfd,buff,msg.pld_len,0)<0)
+	{
+		perror("Error while recv multi send struct");
+	}
+	printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s , /msgis : %s\n", msg.pld_len, msg.nick_sender, msg_type_str[msg.type], msg.infos,buff);
+
+	msg.type = MULTICAST_SEND;
+	msg.pld_len = strlen(buff);
+	strncpy(msg.infos,"\0",1);
+	strncpy(msg.nick_sender,nickname,strlen(nickname));
+	memset(&msg,0,sizeof(msg ));
+	while(p->next!=NULL)
+	{
+		pp++;
+		if(strcmp(p->salon_name,salonn)==0)
+		{
+			msg.type = MULTICAST_SEND;
+			msg.pld_len = strlen(buff);
+			strncpy(msg.infos,"\0",1);
+			strncpy(msg.nick_sender,nickname,strlen(nickname));
+			if(send(p->socket_fd,&msg,sizeof(msg),0)<0)
+			{
+				perror("Error while sending multi struct");
+				break;
+			}
+			printf("MULTI SENT WAS \n");
+			printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msg.pld_len, msg.nick_sender, msg_type_str[msg.type], msg.infos);
+			if(send(p->socket_fd,buff,msg.pld_len,0)<0)
+			{
+				perror("Error while sending multi message");
+				break;
+			}
+			printf("msg to send is %s \n",buff);
+			//p = p->next;
+			printf(" p is %i \n",pp);
+			if(p == NULL);
+			
+			printf("p is NULL \n");
+			//continue;
+		}
+		else{
+			p=p->next;
+			//continue;
+		}
+		p = p->next;
+	}*/
 }
 int read_from_socket(int fd, void *buf, int size) {
 	int ret = 0;
@@ -665,7 +888,7 @@ int socket_listen_and_bind(char *port) {
 }
 
 int server(int listen_fd) {
-	struct connection_information *client_head = NULL;
+	//struct connection_information *client_head = NULL;
 		struct connection_information *current ;
 		static int cach = 0;
 		static int mem = 0;
@@ -825,6 +1048,7 @@ int server(int listen_fd) {
 				// Close socket and set struct pollfd back to default
 				close(pollfds[i].fd);
 				freeing(&client_head,pollfds[i].fd);
+				free(nick);
 				pollfds[i].events = 0;
 				pollfds[i].revents = 0;
 			} else if (pollfds[i].fd != listen_fd && pollfds[i].revents & POLLIN) { // If a socket different from the listening socket is active
@@ -886,6 +1110,11 @@ int server(int listen_fd) {
 					printf("in multi quit \n");
 					multi_quit(pollfds[i].fd,msgstruct,buff,client_head,head_salon);
 				}
+				if(msgstruct.type == MULTICAST_SEND)
+				{
+					printf("in multi send \n");
+					multi_send(pollfds[i].fd,msgstruct,client_head);
+				}
 				
 				//receiving message
 				if(strcmp(msg_type_str[msgstruct.type] ,"ECHO_SEND")==0){
@@ -904,6 +1133,7 @@ int server(int listen_fd) {
 				if(strcmp(buff,"/quit\n") == 0)
 					{
 						freeing(&client_head,pollfds[i].fd);
+						free(nick);
 						close(pollfds[i].fd);
 						int sock = pollfds[i].fd;
 						pollfds[i].fd = -1;
